@@ -3,8 +3,13 @@ const fs = require('fs');
 const client = new Discord.Client();
 const Color = require('color');
 
+function updateClientStatus() {
+  client.user.setActivity(`!paint -ing ${client.guilds.size} servers.`)
+}
+
 client.on('ready', () => {
   console.log(`Logged in as ${client.user.tag}!`);
+  updateClientStatus();
 });
 
 client.on('message', async (msg) => {
@@ -27,7 +32,7 @@ client.on('message', async (msg) => {
       try {
         color = Color('#' + input);
       } catch (error) {
-        msg.channel.send(`> Could not get a color from ${input.replace(/\n/g, '').replace(/`/g, '\\\\`')}`)
+        msg.channel.send(`> Could not get a color from \`\`${input.substring(0, 500).replace(/\n/g, ' ').replace(/`/g, '\u2063`\u2063')}\`\``)
         return;
       }
     }
@@ -58,18 +63,31 @@ client.on('message', async (msg) => {
       const rolesToRemove = msg.member.roles.filter(role => role.name.startsWith('#') && role.name !== hex);
       rolesToRemove.map(async (role) => {
         msg.member.removeRole(role);
-        if (role.members.size === 0) {
-          console.log('Deleting ' + role.name)
+        if (role.members.size === 1) {
           role.delete();
         }
       });
       await msg.member.addRole(role);
       msg.channel.send(`> You\'ve been painted to **${hex}**`);
     } catch (error) {
-      console.log(error);
-      msg.channel.send(`> **Error**: Could not assign your role, ask the server admin to check my permissions.`);
+      msg.channel.send(`> **Error**: Could not assign your role, ask the server admin to check my permissions (Requires 'Manage Roles').`);
     }
   }
+});
+
+client.on('guildMemberRemove', (member) => {
+  const rolesToRemove = member.roles.filter(role => role.name.startsWith('#'));
+  setTimeout(() => {
+    rolesToRemove.map(async (role) => {
+      if (role.members.size === 0) {
+        role.delete();
+      }
+    });
+  }, 1000);
+});
+
+client.on('guildDelete', guild => {
+	updateClientStatus();
 });
 
 client.on('guildCreate', guild => {
@@ -91,7 +109,11 @@ Some things to note
 
 To use me, simply run
 > !paint <color>
-> Where <color> is any valid HEX or CSS color value.`);
+> Where <color> is any valid HEX or CSS color value.
+
+Created by dave caruso, https://davecode.me, support \`dave@davecode.me\``);
+
+  updateClientStatus();
 });
 
-client.login(fs.readFileSync('token').toString().replace(/ |\n/g,''));
+client.login(fs.readFileSync(__dirname + '/token').toString().replace(/ |\n/g,''));
