@@ -1,10 +1,19 @@
 const Discord = require('discord.js');
 const fs = require('fs');
-const client = new Discord.Client();
 const Color = require('color');
+const Long = require('long');
+const Cache = require('node-cache');
+const client = new Discord.Client({
+  cacheGuilds: true,
+	cacheChannels: false,
+	cacheOverwrites: false,
+	cacheRoles: true,
+	cacheEmojis: false,
+	cachePresences: false
+});
 
 function updateClientStatus() {
-  client.user.setActivity(`!paint -ing ${client.guilds.size} servers.`)
+  client.user.setActivity(`!paint | ${client.guilds.cache.size} servers.`)
 }
 
 client.on('ready', () => {
@@ -12,10 +21,57 @@ client.on('ready', () => {
   updateClientStatus();
 });
 
+const schedules = {}
+
+const rateLimitCache = new Cache({
+  stdTTL: 12
+})
+const rateLimitCache2 = new Cache({
+  stdTTL: 230
+})
+
+async function cleanup(guild) {
+  clearTimeout(schedules[guild.id]);
+  let n = 0;
+  const rolesToCheck = guild.roles.cache.filter(role => role.name.startsWith('#'));
+  const allMembers = await guild.members.fetch();
+  const colorUses = {};
+  allMembers.forEach(x => {
+    x.roles.cache.forEach(role => {
+      if (role.name.startsWith('#')) {
+        colorUses[role.id] = true;
+      }
+    });
+  });
+  await Promise.all(rolesToCheck.map(async (role) => {
+    if (!colorUses[role.id]) {
+      n++;
+      await role.delete();
+    }
+  }));
+  return n;
+}
+
+async function scheduleClean(guild) {
+  if (!schedules[guild.id]) {
+    return;
+  }
+  schedules[guild.id] = setTimeout(() => {
+    cleanup(guild)
+  }, 5 * 60 * 1000);
+}
+
 client.on('message', async (msg) => {
   if (msg.author.bot) return;
 
+  if (msg.content.trim() === '!help') {
+    msg.channel.send('Name Painter v2\n`!help` - cmd list\n`!paint` or `!color` - assign a color role **(available to all users)**\n`!clean-roles` - remove color roles no one has as the bot sometimes bugs')
+  }
   if (msg.content.startsWith('!paint') || msg.content.startsWith('!color')) {
+    if(rateLimitCache.get(msg.author.id)) {
+      msg.channel.send('> **Rate Limited**: This command can only be used every 12 seconds (per user).')
+    }
+
     const args = msg.content.split(' ');
     args.shift();
 
@@ -39,18 +95,22 @@ client.on('message', async (msg) => {
 
     const hex = color.hex();
 
-    let role = msg.guild.roles.find(role => role.name === hex);
+    rateLimitCache.set(msg.author.id , 'true');
+
+    let role = msg.guild.roles.cache.find(role => role.name === hex);
 
     if (!role) {
-      if (msg.guild.roles.length === 250) {
+      if (msg.guild.roles.cache.length === 250) {
         msg.channel.send(`> **Error**: The Discord Role Limit of **250 Roles** has been hit!`);
         return;
       } else {
         try {
-          role = await msg.guild.createRole({
-            name: hex,
-            color: color.rgbNumber(),
-            permissions: 0,
+          role = await msg.guild.roles.create({
+            data: {
+              name: hex,
+              color: color.rgbNumber(),
+              permissions: 0,
+            }
           });
         } catch (error) {
           msg.channel.send(`> **Error**: Could not create a role for you!`);
@@ -60,26 +120,39 @@ client.on('message', async (msg) => {
     }
 
     try {
-      const rolesToRemove = msg.member.roles.filter(role => role.name.startsWith('#') && role.name !== hex);
+      const rolesToRemove = msg.member.roles.cache.filter(role => role.name.startsWith('#') && role.name !== hex);
       rolesToRemove.map(async (role) => {
-        msg.member.removeRole(role);
-        if (role.members.size === 1) {
-          role.delete();
-        }
+        msg.member.roles.remove(role);
       });
-      await msg.member.addRole(role);
+      await msg.member.roles.add(role);
       msg.channel.send(`> You\'ve been painted to **${hex}**`);
+
+      scheduleClean(msg.guild)
     } catch (error) {
+      msg.channel.send(`> **Error**: Could not assign your role, ask the server admin to check my permissions (Requires 'Manage Roles').`);
+    }
+  }
+  if (msg.content.startsWith('!clean-roles')) {
+    if(rateLimitCache2.get(msg.guild.id)) {
+      msg.channel.send('> **Rate Limited**: This command can only be used every 230 seconds (per guild).\n> Note: role cleanup happens automatically up to 5 minutes after a !paint.')
+      return;
+    }
+    rateLimitCache2.set(msg.guild.id , 'true');
+    try {
+      const n = await cleanup(msg.guild);
+      msg.channel.send(`> Removed ${n} unused color roles.`);
+    } catch (error) {
+      console.log(error)
       msg.channel.send(`> **Error**: Could not assign your role, ask the server admin to check my permissions (Requires 'Manage Roles').`);
     }
   }
 });
 
 client.on('guildMemberRemove', (member) => {
-  const rolesToRemove = member.roles.filter(role => role.name.startsWith('#'));
+  const rolesToRemove = member.roles.cache.filter(role => role.name.startsWith('#'));
   setTimeout(() => {
     rolesToRemove.map(async (role) => {
-      if (role.members.size === 0) {
+      if (role.members.cache.size === 0) {
         role.delete();
       }
     });
@@ -90,17 +163,24 @@ client.on('guildDelete', guild => {
 	updateClientStatus();
 });
 
+function getDefaultChannel(guild) {
+  // Check for a "general" channel, which is often default chat
+  const generalChannel = guild.channels.cache.find(channel => channel.name === "general" && channel.permissionsFor(guild.client.user).has("SEND_MESSAGES"));
+  if (generalChannel)
+    return generalChannel;
+  // Now we get into the heavy stuff: first channel in order where the bot can speak
+  // hold on to your hats!
+  return guild.channels.cache
+   .filter(c => c.type === "text" &&
+     c.permissionsFor(guild.client.user).has("SEND_MESSAGES"))
+   .sort((a, b) => a.position - b.position ||
+     Long.fromString(a.id).sub(Long.fromString(b.id)).toNumber())
+   .first();
+}
+
 client.on('guildCreate', guild => {
-  let defaultChannel = "";
-  guild.channels.forEach((channel) => {
-    if (channel.type == "text" && defaultChannel == "") {
-      if (channel.permissionsFor(guild.me).has("SEND_MESSAGES")) {
-        defaultChannel = channel;
-      }
-    }
-  })
-  //defaultChannel will be the channel object that it first finds the bot has permissions for
-  defaultChannel.send(`**I'm the Name Painter. I let users customize their name color.**
+  let defaultChannel = getDefaultChannel(guild);
+  defaultChannel && defaultChannel.send(`**I'm the Name Painter. I let users customize their name color.**
 Some things to note
 
 - The paint command is available to all users in the server.
