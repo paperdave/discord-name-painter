@@ -9,7 +9,16 @@ const client = new Discord.Client({
 	cacheOverwrites: false,
 	cacheRoles: true,
 	cacheEmojis: false,
-	cachePresences: false
+  cachePresences: false,
+  messageCacheMaxSize: 0,
+  disableMentions: 'all',
+  ws: {
+    intents: [
+      'GUILDS',
+      'GUILD_MEMBERS',
+      'GUILD_MESSAGES',
+    ],
+  }
 });
 
 function updateClientStatus() {
@@ -149,14 +158,7 @@ client.on('message', async (msg) => {
 });
 
 client.on('guildMemberRemove', (member) => {
-  const rolesToRemove = member.roles.cache.filter(role => role.name.startsWith('#'));
-  setTimeout(() => {
-    rolesToRemove.map(async (role) => {
-      if (role.members.cache.size === 0) {
-        role.delete();
-      }
-    });
-  }, 1000);
+  scheduleClean(member.guild);
 });
 
 client.on('guildDelete', guild => {
