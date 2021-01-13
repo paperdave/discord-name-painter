@@ -41,6 +41,7 @@ const rateLimitCache2 = new Cache({
 
 async function cleanup(guild) {
   clearTimeout(schedules[guild.id]);
+  delete schedules[guild.id];
   let n = 0;
   const rolesToCheck = guild.roles.cache.filter(role => role.name.startsWith('#'));
   const allMembers = await guild.members.fetch();
@@ -62,7 +63,7 @@ async function cleanup(guild) {
 }
 
 async function scheduleClean(guild) {
-  if (!schedules[guild.id]) {
+  if (schedules[guild.id]) {
     return;
   }
   schedules[guild.id] = setTimeout(() => {
@@ -79,6 +80,7 @@ client.on('message', async (msg) => {
   if (msg.content.startsWith('!paint') || msg.content.startsWith('!color')) {
     if(rateLimitCache.get(msg.author.id)) {
       msg.channel.send('> **Rate Limited**: This command can only be used every 12 seconds (per user).')
+      return;
     }
 
     const args = msg.content.split(' ');
