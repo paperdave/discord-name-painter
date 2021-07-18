@@ -1,6 +1,6 @@
 {
   "name": "name-paint",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "description": "Discord Bot to let people paint their name anything.",
   "main": "index.js",
   "scripts": {
@@ -10,7 +10,7 @@
   "license": "ISC",
   "dependencies": {
     "color": "^3.1.2",
-    "discord.js-light": "^3.3.6",
+    "discord.js": "^13.0.0-dev.4d53d0f.1626566655",
     "long": "^4.0.0",
     "node-cache": "^5.1.2"
   }

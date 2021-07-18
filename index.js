@@ -4,36 +4,39 @@ const Color = require('color');
 const Long = require('long');
 const Cache = require('node-cache');
 const client = new Discord.Client({
-  cacheGuilds: true,
-	cacheChannels: false,
-	cacheOverwrites: false,
-	cacheRoles: true,
-	cacheEmojis: false,
-  cachePresences: false,
-  messageCacheMaxSize: 0,
-  disableMentions: 'all',
-  ws: {
-    intents: [
-      'GUILDS',
-      'GUILD_MEMBERS',
-      'GUILD_MESSAGES',
-    ],
-  }
+  intents: [
+    'GUILDS',
+    'GUILD_MEMBERS',
+    'GUILD_MESSAGES',
+  ],
 });
 
 function updateClientStatus() {
-  client.user.setActivity(`!paint | ${client.guilds.cache.size} servers.`)
+  client.user.setActivity(`/paint | ${client.guilds.cache.size} servers.`)
 }
 
-client.on('ready', () => {
+client.on('ready', async() => {
   console.log(`Logged in as ${client.user.tag}!`);
   updateClientStatus();
+
+  // client.application.commands.create({
+  //   name: 'paint',
+  //   description: 'Customize your username color',
+  //   options: [
+  //     { name: 'color', description: 'Color to change your name to (HEX or CSS)', type: 'STRING', required: true },
+  //   ]
+  // });
+
+  // client.application.commands.create({
+  //   name: 'clean-roles',
+  //   description: 'Run the role cleanup utility manually'
+  // });
 });
 
 const schedules = {}
 
 const rateLimitCache = new Cache({
-  stdTTL: 12
+  stdTTL: 2
 })
 const rateLimitCache2 = new Cache({
   stdTTL: 230
@@ -71,27 +74,18 @@ async function scheduleClean(guild) {
   }, 5 * 60 * 1000);
 }
 
-client.on('message', async (msg) => {
+client.on('messageCreate', async (msg) => {
   if (msg.author.bot) return;
 
-  if (msg.content.trim() === '!help') {
-    msg.channel.send('Name Painter v2\n`!help` - cmd list\n`!paint` or `!color` - assign a color role **(available to all users)**\n`!clean-roles` - remove color roles no one has as the bot sometimes bugs')
-  }
   if (msg.content.startsWith('!paint') || msg.content.startsWith('!color')) {
-    if(rateLimitCache.get(msg.author.id)) {
-      msg.channel.send('> **Rate Limited**: This command can only be used every 12 seconds (per user).')
-      return;
-    }
+    msg.channel.send('Name Paint has been updated to use slash commands. If they do not show up, have an admin reinvite the bot:\n<https://davecode.me/name-painter-invite>')
+  }
+});
 
-    const args = msg.content.split(' ');
-    args.shift();
+client.on('interactionCreate', async (i) => {
+  if (i.isCommand() && i.commandName === 'paint') {
+    const input = i.options.get('color').value;
 
-    if (args.length === 0) {
-      msg.channel.send('> **Usage**: !paint <color>\n> Where <color> is any valid HEX or CSS color value.')
-      return;
-    }
-
-    const input = args.join(' ');
     let color;
     try {
       color = Color(input);
@@ -99,62 +93,70 @@ client.on('message', async (msg) => {
       try {
         color = Color('#' + input);
       } catch (error) {
-        msg.channel.send(`> Could not get a color from \`\`${input.substring(0, 500).replace(/\n/g, ' ').replace(/`/g, '\u2063`\u2063')}\`\``)
+        i.reply({
+          ephemeral: true,
+          content: `Could not get a color from \`\`${input.substring(0, 500).replace(/\n/g, ' ').replace(/`/g, '\u2063`\u2063')}\`\``,
+        })
         return;
       }
     }
 
     const hex = color.hex();
 
-    rateLimitCache.set(msg.author.id , 'true');
+    if (rateLimitCache.has(i.user.id)) {
+      i.reply({
+        ephemeral: true,
+        content: 'You have reached the rate limit. Please wait a few seconds before running the command again.',
+      });
+      return;
+    }
 
-    let role = msg.guild.roles.cache.find(role => role.name === hex);
+    rateLimitCache.set(i.user.id , 'true');
+
+    let role = i.guild.roles.cache.find(role => role.name === hex);
 
     if (!role) {
-      if (msg.guild.roles.cache.length === 250) {
-        msg.channel.send(`> **Error**: The Discord Role Limit of **250 Roles** has been hit!`);
+      if (i.guild.roles.cache.length === 250) {
+        i.reply({
+          ephemeral: true,
+          content: `The role limit of **250 Roles** has been hit, I cannot assign you this name color.` 
+        });
         return;
       } else {
         try {
-          role = await msg.guild.roles.create({
-            data: {
-              name: hex,
-              color: color.rgbNumber(),
-              permissions: 0,
-            }
+          role = await i.guild.roles.create({
+            name: hex,
+            color: color.rgbNumber(),
+            permissions: [],
           });
         } catch (error) {
-          msg.channel.send(`> **Error**: Could not create a role for you!`);
+          console.log(error)
+          i.reply({
+            ephemeral: true,
+            content: `Error creating a role for you, contact an admin to check my permissions.` 
+          });
           return;
         }
       }
     }
 
     try {
-      const rolesToRemove = msg.member.roles.cache.filter(role => role.name.startsWith('#') && role.name !== hex);
+      const rolesToRemove = i.member.roles.cache.filter(role => role.name.startsWith('#') && role.name !== hex);
       rolesToRemove.map(async (role) => {
-        msg.member.roles.remove(role);
+        i.member.roles.remove(role);
       });
-      await msg.member.roles.add(role);
-      msg.channel.send(`> You\'ve been painted to **${hex}**`);
+      await i.member.roles.add(role);
+      i.reply({
+        ephemeral: true,
+        content: `You\'ve been painted to **${hex}**` 
+      });
 
-      scheduleClean(msg.guild)
+      scheduleClean(i.guild)
     } catch (error) {
-      msg.channel.send(`> **Error**: Could not assign your role, ask the server admin to check my permissions (Requires 'Manage Roles').`);
-    }
-  }
-  if (msg.content.startsWith('!clean-roles')) {
-    if(rateLimitCache2.get(msg.guild.id)) {
-      msg.channel.send('> **Rate Limited**: This command can only be used every 230 seconds (per guild).\n> Note: role cleanup happens automatically up to 5 minutes after a !paint.')
-      return;
-    }
-    rateLimitCache2.set(msg.guild.id , 'true');
-    try {
-      const n = await cleanup(msg.guild);
-      msg.channel.send(`> Removed ${n} unused color roles.`);
-    } catch (error) {
-      console.log(error)
-      msg.channel.send(`> **Error**: Could not assign your role, ask the server admin to check my permissions (Requires 'Manage Roles').`);
+      i.reply({
+        ephemeral: true,
+        content: `Error assigning your role, contact an admin to check my permissions.` 
+      });
     }
   }
 });
@@ -187,15 +189,15 @@ client.on('guildCreate', guild => {
   defaultChannel && defaultChannel.send(`**I'm the Name Painter. I let users customize their name color.**
 Some things to note
 
-- The paint command is available to all users in the server.
+- The paint command is available to **all users** in the server.
 - You should not have existing roles that start with #
-- You generally should not assign the roles manually
+- You *generally* should not assign the roles manually
 
 To use me, simply run
-> !paint <color>
+> /paint <color>
 > Where <color> is any valid HEX or CSS color value.
 
-Created by dave caruso, https://davecode.me, support \`dave@davecode.me\``);
+Created by dave caruso, <https://davecode.me>, support \`dave@davecode.me\``);
 
   updateClientStatus();
 });
