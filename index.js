@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const Discord = require('discord.js');
 const fs = require('fs');
 const Color = require('color');
@@ -202,4 +204,11 @@ Created by dave caruso, <https://davecode.me>, support \`dave@davecode.me\``);
   updateClientStatus();
 });
 
-client.login(fs.readFileSync(__dirname + '/token').toString().replace(/ |\n/g,''));
+client.login(process.env.TOKEN);
+
+if (process.env.HEALTHCHECKS_URL) {
+  var https = require('https');
+  setInterval(() => {
+    https.get(process.env.HEALTHCHECKS_URL).on('error', () => {});
+  }, 5 * 60 * 1000);
+}
