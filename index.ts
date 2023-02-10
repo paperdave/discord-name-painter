@@ -1,6 +1,5 @@
 import Color from "color";
 import * as Discord from "discord.js";
-import Long from "long";
 import NodeCache from "node-cache";
 
 import 'dotenv/config';
