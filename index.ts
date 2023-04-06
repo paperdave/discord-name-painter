@@ -221,13 +221,10 @@ client.on('invalidated', function () {
 });
 
 // Client warning handler (which might not require restarting but just to be safe.)
-client.on('error', function (info) {
+client.on('warn', function (info) {
     // Writes a log of what happened to a log file.
     fs.writeFileSync(
         path.join('logs', `${Date.now()}.warn`),
         `Warning: ${info}`
     );
-
-    // Exits the process (and hopefully restarts!)
-    process.exit();
 });
