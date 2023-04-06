@@ -1,7 +1,8 @@
 import Color from "color";
 import * as Discord from "discord.js";
 import NodeCache from "node-cache";
-
+import fs from 'fs';
+import path from 'path';
 import 'dotenv/config';
 
 const helpMessage = `**I'm the Name Painter. I let users customize their name color.**
@@ -188,9 +189,45 @@ client.on('guildCreate', async(guild) => {
 
 client.login(process.env.TOKEN);
 
-// if (process.env.HEALTHCHECKS_URL) {
-//   var https = require('https');
-//   setInterval(() => {
-//     https.get(process.env.HEALTHCHECKS_URL).on('error', () => {});
-//   }, 5 * 60 * 1000);
-// }
+if (process.env.HEALTHCHECKS_URL) {
+   var https = require('https');
+   setInterval(() => {
+     https.get(process.env.HEALTHCHECKS_URL).on('error', () => {});
+   }, 5 * 60 * 1000);
+}
+
+// Client error handler.
+client.on('error', function (error) {
+    // Writes a log of what happened to a log file.
+    fs.writeFileSync(
+        path.join('logs', `${Date.now()}.err`),
+        `${error.name}: ${error.message}`
+    );
+
+    // Exits the process (and hopefully restarts!)
+    process.exit();
+});
+
+// Invalidation handler.
+client.on('invalidated', function () {
+    // Writes a log of what happened to a log file.
+    fs.writeFileSync(
+        path.join('logs', `${Date.now()}.inv`),
+        'Error: The client was invalidated by Discord.'
+    );
+
+    // Exits the process (and hopefully restarts!)
+    process.exit();
+});
+
+// Client warning handler (which might not require restarting but just to be safe.)
+client.on('error', function (info) {
+    // Writes a log of what happened to a log file.
+    fs.writeFileSync(
+        path.join('logs', `${Date.now()}.warn`),
+        `Warning: ${info}`
+    );
+
+    // Exits the process (and hopefully restarts!)
+    process.exit();
+});
